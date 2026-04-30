@@ -239,6 +239,36 @@ class Database:
     def list_foods(self) -> list[str]:
         return [row["name"] for row in self.conn.execute("SELECT name FROM foods ORDER BY name")]
 
+    def upsert_food(self, name: str, nutrients: Nutrients, aliases: Iterable[str] = ()) -> None:
+        normalized_name = normalize_name(name)
+        existing = self.find_food(normalized_name)
+        if existing and existing["name"] == normalized_name:
+            self.conn.execute(
+                f"""
+                UPDATE foods
+                SET {", ".join(f"{field} = ?" for field in NUTRIENT_FIELDS)}
+                WHERE id = ?
+                """,
+                (*[getattr(nutrients, field) for field in NUTRIENT_FIELDS], existing["id"]),
+            )
+            food_id = existing["id"]
+        else:
+            cur = self.conn.execute(
+                f"""
+                INSERT INTO foods
+                (name, serving_g, {", ".join(NUTRIENT_FIELDS)})
+                VALUES (?, NULL, {", ".join("?" for _ in NUTRIENT_FIELDS)})
+                """,
+                (normalized_name, *[getattr(nutrients, field) for field in NUTRIENT_FIELDS]),
+            )
+            food_id = cur.lastrowid
+        for alias in {normalized_name, *(normalize_name(alias) for alias in aliases if alias.strip())}:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO food_aliases(alias, food_id) VALUES (?, ?)",
+                (alias, food_id),
+            )
+        self.conn.commit()
+
     def set_goal(self, user_id: int, key: str, value: float) -> bool:
         allowed = {
             "kcal": "kcal",

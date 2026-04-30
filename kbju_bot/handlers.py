@@ -23,6 +23,8 @@ def build_router(db: Database) -> Router:
             "/add вівсянка 80г, банан 120г\n"
             "/today\n"
             "/goals\n\n"
+            "Додати продукт з етикетки:\n"
+            "/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8\n\n"
             "Рецепти:\n"
             "/template запіканка | сир 5%, яйце, манка, йогурт, цукор\n"
             "/cook запіканка | сир 5%=580г, яйце=100г, манка=47г, йогурт=170г, цукор=25г | gross=1420г | dish=форма"
@@ -36,6 +38,24 @@ def build_router(db: Database) -> Router:
     async def foods(message: Message) -> None:
         db.ensure_user(message.from_user.id)
         await message.answer("Продукти в базі:\n" + "\n".join(f"- {name}" for name in db.list_foods()))
+
+    @router.message(Command("food"))
+    async def food(message: Message) -> None:
+        db.ensure_user(message.from_user.id)
+        payload = command_payload(message.text)
+        if not payload or "|" not in payload:
+            await message.answer(
+                "Формат на 100 г:\n"
+                "/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8"
+            )
+            return
+        try:
+            name, nutrients, aliases = parse_food_definition(payload)
+        except ValueError as exc:
+            await message.answer(str(exc))
+            return
+        db.upsert_food(name, nutrients, aliases)
+        await message.answer(f"Зберегла продукт: {name}\n\nНа 100 г:\n{format_nutrients(nutrients)}")
 
     @router.message(Command("add"))
     async def add(message: Message) -> None:
@@ -253,6 +273,9 @@ HELP_TEXT = """
 /delete 12
 /foods
 
+Додати продукт з етикетки на 100 г:
+/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8
+
 Цілі:
 /goals
 /setgoal ккал 1900
@@ -338,6 +361,44 @@ def goals_hint(db: Database, user_id: int, total: Nutrients) -> str:
 
         hints.append(f"Сіль: {salt_g_from_sodium_mg(total.sodium_mg):.2f} / {fmt_grams(row['salt_max_g'])} г")
     return "\n".join(hints) if hints else "Цілі ще не задані. Напиши /goals."
+
+
+def parse_food_definition(payload: str) -> tuple[str, Nutrients, list[str]]:
+    chunks = [chunk.strip() for chunk in payload.split("|") if chunk.strip()]
+    if len(chunks) < 2:
+        raise ValueError("Дай назву і нутрієнти на 100 г. Приклад є в /help.")
+    name = chunks[0]
+    values = parse_key_value_chunks("|".join(chunks[1:]))
+    missing = [label for label in ("ккал", "б", "ж", "в") if label not in values]
+    if missing:
+        raise ValueError("Не бачу обов'язкові поля: " + ", ".join(missing))
+
+    salt_g = parse_float(values.get("сіль", "0"))
+    nutrients = Nutrients(
+        kcal=parse_float(values["ккал"]),
+        protein_g=parse_float(values["б"]),
+        fat_g=parse_float(values["ж"]),
+        carbs_g=parse_float(values["в"]),
+        fiber_g=parse_float(values.get("клітковина", "0")),
+        sugars_g=parse_float(values.get("цукри", "0")),
+        saturated_fat_g=parse_float(values.get("насичені", "0")),
+        sodium_mg=salt_g * 1000 / 2.5,
+    )
+    aliases = []
+    if values.get("aliases"):
+        aliases.extend(alias.strip() for alias in values["aliases"].split(","))
+    if values.get("аліаси"):
+        aliases.extend(alias.strip() for alias in values["аліаси"].split(","))
+    return name, nutrients, aliases
+
+
+def parse_float(value: str) -> float:
+    cleaned = value.strip().lower().replace(",", ".")
+    cleaned = re.sub(r"\s*(ккал|г|гр|g|мг|mg)\s*$", "", cleaned)
+    try:
+        return float(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"Не можу прочитати число: {value}") from exc
 
 
 def cook_recipe(db: Database, user_id: int, payload: str) -> str:

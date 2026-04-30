@@ -37,10 +37,13 @@ The bot uses polling, so it does not need HTTPS or a server for local testing.
 /start
 /help
 /foods
+/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8
 /add вівсянка 80г, банан 120г
 /today
 /delete 12
 ```
+
+Food values are stored per 100 g. Salt is entered in grams; internally the bot stores sodium.
 
 Goals:
 
