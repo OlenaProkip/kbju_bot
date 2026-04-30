@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from .config import load_config
 from .db import Database
@@ -19,7 +20,7 @@ async def main() -> None:
 
     bot = Bot(token=config.bot_token)
     await bot.set_my_commands(BOT_COMMANDS)
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(build_router(db))
     await dispatcher.start_polling(bot)
 

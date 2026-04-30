@@ -27,8 +27,9 @@ BOT_COMMANDS = [
 def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Сьогодні"), KeyboardButton(text="Цілі")],
-            [KeyboardButton(text="Продукти"), KeyboardButton(text="Рецепти")],
+            [KeyboardButton(text="Додати їжу"), KeyboardButton(text="Сьогодні")],
+            [KeyboardButton(text="Цілі"), KeyboardButton(text="Продукти")],
+            [KeyboardButton(text="Посуд"), KeyboardButton(text="Рецепти")],
             [KeyboardButton(text="Допомога")],
         ],
         resize_keyboard=True,
@@ -44,7 +45,7 @@ def quick_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Цілі", callback_data="menu:goals"),
             ],
             [
-                InlineKeyboardButton(text="Додати продукт", callback_data="menu:add_food_help"),
+                InlineKeyboardButton(text="Додати продукт", callback_data="flow:food"),
                 InlineKeyboardButton(text="Рецепти", callback_data="menu:recipes"),
             ],
         ]
@@ -68,5 +69,30 @@ def recipes_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Активні партії", callback_data="menu:batches"),
             ],
             [InlineKeyboardButton(text="Як створити рецепт", callback_data="menu:recipe_help")],
+        ]
+    )
+
+
+def cancel_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Скасувати", callback_data="flow:cancel")]]
+    )
+
+
+def goals_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Ккал", callback_data="goal:ккал"),
+                InlineKeyboardButton(text="Білки", callback_data="goal:білки"),
+            ],
+            [
+                InlineKeyboardButton(text="Клітковина", callback_data="goal:клітковина"),
+                InlineKeyboardButton(text="Цукри", callback_data="goal:цукри"),
+            ],
+            [
+                InlineKeyboardButton(text="Насичені жири", callback_data="goal:насичені"),
+                InlineKeyboardButton(text="Сіль", callback_data="goal:сіль"),
+            ],
         ]
     )
