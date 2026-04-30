@@ -39,8 +39,24 @@ class GoalFlow(StatesGroup):
     value = State()
 
 
+MAIN_MENU_BUTTONS = {
+    "Додати їжу",
+    "Сьогодні",
+    "Цілі",
+    "Продукти",
+    "Список продуктів",
+    "Додати продукт",
+    "Посуд",
+    "Рецепти",
+    "Допомога",
+}
+
+
 def build_router(db: Database) -> Router:
     router = Router()
+
+    async def handle_main_menu_text(message: Message, state: FSMContext) -> bool:
+        return await dispatch_main_menu_text(db, message, state)
 
     @router.message(Command("start"))
     async def start(message: Message) -> None:
@@ -176,6 +192,8 @@ def build_router(db: Database) -> Router:
 
     @router.message(AddFoodFlow.name)
     async def food_flow_name(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         await state.update_data(name=message.text.strip())
@@ -184,34 +202,36 @@ def build_router(db: Database) -> Router:
 
     @router.message(AddFoodFlow.kcal)
     async def food_flow_kcal(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "kcal", AddFoodFlow.protein, "Білки на 100 г?")
+        await collect_food_number(db, message, state, "kcal", AddFoodFlow.protein, "Білки на 100 г?")
 
     @router.message(AddFoodFlow.protein)
     async def food_flow_protein(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "protein_g", AddFoodFlow.fat, "Жири на 100 г?")
+        await collect_food_number(db, message, state, "protein_g", AddFoodFlow.fat, "Жири на 100 г?")
 
     @router.message(AddFoodFlow.fat)
     async def food_flow_fat(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "fat_g", AddFoodFlow.carbs, "Вуглеводи на 100 г?")
+        await collect_food_number(db, message, state, "fat_g", AddFoodFlow.carbs, "Вуглеводи на 100 г?")
 
     @router.message(AddFoodFlow.carbs)
     async def food_flow_carbs(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "carbs_g", AddFoodFlow.fiber, "Клітковина на 100 г? Якщо нема на етикетці, напиши 0.")
+        await collect_food_number(db, message, state, "carbs_g", AddFoodFlow.fiber, "Клітковина на 100 г? Якщо нема на етикетці, напиши 0.")
 
     @router.message(AddFoodFlow.fiber)
     async def food_flow_fiber(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "fiber_g", AddFoodFlow.sugars, "Цукри на 100 г? Якщо нема, напиши 0.")
+        await collect_food_number(db, message, state, "fiber_g", AddFoodFlow.sugars, "Цукри на 100 г? Якщо нема, напиши 0.")
 
     @router.message(AddFoodFlow.sugars)
     async def food_flow_sugars(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "sugars_g", AddFoodFlow.saturated_fat, "Насичені жири на 100 г? Якщо нема, напиши 0.")
+        await collect_food_number(db, message, state, "sugars_g", AddFoodFlow.saturated_fat, "Насичені жири на 100 г? Якщо нема, напиши 0.")
 
     @router.message(AddFoodFlow.saturated_fat)
     async def food_flow_saturated(message: Message, state: FSMContext) -> None:
-        await collect_food_number(message, state, "saturated_fat_g", AddFoodFlow.salt, "Сіль на 100 г? Якщо вказаний натрій, поки напиши 0.")
+        await collect_food_number(db, message, state, "saturated_fat_g", AddFoodFlow.salt, "Сіль на 100 г? Якщо вказаний натрій, поки напиши 0.")
 
     @router.message(AddFoodFlow.salt)
     async def food_flow_salt(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         try:
@@ -270,6 +290,8 @@ def build_router(db: Database) -> Router:
 
     @router.message(AddMealFlow.items)
     async def add_meal_flow(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         await state.clear()
@@ -326,6 +348,8 @@ def build_router(db: Database) -> Router:
 
     @router.message(DishFlow.name)
     async def dish_flow_name(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         await state.update_data(dish_name=message.text.strip())
@@ -334,6 +358,8 @@ def build_router(db: Database) -> Router:
 
     @router.message(DishFlow.weight)
     async def dish_flow_weight(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         try:
@@ -348,6 +374,8 @@ def build_router(db: Database) -> Router:
 
     @router.message(GoalFlow.value)
     async def goal_flow_value(message: Message, state: FSMContext) -> None:
+        if await handle_main_menu_text(message, state):
+            return
         if await maybe_cancel(message, state):
             return
         try:
@@ -591,7 +619,37 @@ async def maybe_cancel(message: Message, state: FSMContext) -> bool:
     return False
 
 
-async def collect_food_number(message: Message, state: FSMContext, key: str, next_state: State, prompt: str) -> None:
+async def dispatch_main_menu_text(db: Database, message: Message, state: FSMContext) -> bool:
+    if not message.text or message.text not in MAIN_MENU_BUTTONS:
+        return False
+    await state.clear()
+    if message.text == "Додати їжу":
+        await state.set_state(AddMealFlow.items)
+        await message.answer("Напиши, що додати. Наприклад: вівсянка 80г, банан 120г", reply_markup=cancel_menu())
+    elif message.text == "Сьогодні":
+        await send_today(db, message, message.from_user.id)
+    elif message.text == "Цілі":
+        await message.answer(format_goals(db.goals(message.from_user.id)), reply_markup=goals_menu())
+    elif message.text == "Продукти":
+        await message.answer("Продукти:", reply_markup=products_inline_menu())
+    elif message.text == "Список продуктів":
+        await send_foods(db, message)
+    elif message.text == "Додати продукт":
+        await state.set_state(AddFoodFlow.name)
+        await message.answer("Назва продукту?", reply_markup=cancel_menu())
+    elif message.text == "Посуд":
+        await state.set_state(DishFlow.name)
+        await message.answer("Назва посуду? Наприклад: форма скляна", reply_markup=cancel_menu())
+    elif message.text == "Рецепти":
+        await message.answer("Рецепти:", reply_markup=recipes_menu())
+    elif message.text == "Допомога":
+        await message.answer(HELP_TEXT, reply_markup=quick_menu())
+    return True
+
+
+async def collect_food_number(db: Database, message: Message, state: FSMContext, key: str, next_state: State, prompt: str) -> None:
+    if await dispatch_main_menu_text(db, message, state):
+        return
     if await maybe_cancel(message, state):
         return
     try:
