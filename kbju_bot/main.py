@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher
 from .config import load_config
 from .db import Database
 from .handlers import build_router
+from .ui import BOT_COMMANDS
 
 
 async def main() -> None:
@@ -17,6 +18,7 @@ async def main() -> None:
     db.init()
 
     bot = Bot(token=config.bot_token)
+    await bot.set_my_commands(BOT_COMMANDS)
     dispatcher = Dispatcher()
     dispatcher.include_router(build_router(db))
     await dispatcher.start_polling(bot)

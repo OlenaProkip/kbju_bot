@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from .db import Database
 from .nutrition import NUTRIENT_FIELDS, Nutrients, fmt_grams, format_nutrients
 from .parser import parse_food_items, parse_key_value_chunks
+from .ui import after_add_menu, main_keyboard, quick_menu, recipes_menu
 
 
 def build_router(db: Database) -> Router:
@@ -19,20 +20,74 @@ def build_router(db: Database) -> Router:
         db.ensure_user(message.from_user.id)
         await message.answer(
             "Привіт. Я бот для КБЖВ, клітковини, цукрів, насичених жирів і солі.\n\n"
-            "Спробуй:\n"
-            "/add вівсянка 80г, банан 120г\n"
-            "/today\n"
-            "/goals\n\n"
-            "Додати продукт з етикетки:\n"
-            "/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8\n\n"
-            "Рецепти:\n"
-            "/template запіканка | сир 5%, яйце, манка, йогурт, цукор\n"
-            "/cook запіканка | сир 5%=580г, яйце=100г, манка=47г, йогурт=170г, цукор=25г | gross=1420г | dish=форма"
+            "Можеш просто писати їжу: вівсянка 80г, банан 120г.\n"
+            "Або користуйся меню нижче.",
+            reply_markup=main_keyboard(),
         )
+        await message.answer("Швидкі дії:", reply_markup=quick_menu())
 
+    @router.message(F.text == "Допомога")
     @router.message(Command("help"))
     async def help_command(message: Message) -> None:
-        await message.answer(HELP_TEXT)
+        await message.answer(HELP_TEXT, reply_markup=quick_menu())
+
+    @router.message(F.text == "Продукти")
+    async def products_menu(message: Message) -> None:
+        await message.answer(
+            "Можеш подивитися базу через /foods або додати продукт з етикетки так:\n\n"
+            "/food фета | ккал=264 | б=14 | ж=21 | в=4 | клітковина=0 | цукри=4 | насичені=15 | сіль=2.8"
+        )
+
+    @router.message(F.text == "Рецепти")
+    async def recipe_menu_message(message: Message) -> None:
+        await message.answer("Рецепти:", reply_markup=recipes_menu())
+
+    @router.callback_query(F.data == "menu:today")
+    async def today_callback(callback: CallbackQuery) -> None:
+        db.ensure_user(callback.from_user.id)
+        await send_today(db, callback.message, callback.from_user.id)
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:goals")
+    async def goals_callback(callback: CallbackQuery) -> None:
+        db.ensure_user(callback.from_user.id)
+        await callback.message.answer(format_goals(db.goals(callback.from_user.id)), reply_markup=quick_menu())
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:add_food_help")
+    async def add_food_help_callback(callback: CallbackQuery) -> None:
+        await callback.message.answer(
+            "Додай продукт з етикетки на 100 г:\n\n"
+            "/food назва | ккал=0 | б=0 | ж=0 | в=0 | клітковина=0 | цукри=0 | насичені=0 | сіль=0"
+        )
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:recipes")
+    async def recipes_callback(callback: CallbackQuery) -> None:
+        await callback.message.answer("Рецепти:", reply_markup=recipes_menu())
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:templates")
+    async def templates_callback(callback: CallbackQuery) -> None:
+        db.ensure_user(callback.from_user.id)
+        await send_templates(db, callback.message, callback.from_user.id)
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:batches")
+    async def batches_callback(callback: CallbackQuery) -> None:
+        db.ensure_user(callback.from_user.id)
+        await send_batches(db, callback.message, callback.from_user.id)
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:recipe_help")
+    async def recipe_help_callback(callback: CallbackQuery) -> None:
+        await callback.message.answer(
+            "Шаблон:\n"
+            "/template запіканка | сир 5%, яйце, манка, йогурт, цукор\n\n"
+            "Нова партія:\n"
+            "/cook запіканка | сир 5%=580г, яйце=100г, манка=47г, йогурт=170г, цукор=25г | gross=1420г | dish=форма скляна"
+        )
+        await callback.answer()
 
     @router.message(Command("foods"))
     async def foods(message: Message) -> None:
@@ -55,7 +110,7 @@ def build_router(db: Database) -> Router:
             await message.answer(str(exc))
             return
         db.upsert_food(name, nutrients, aliases)
-        await message.answer(f"Зберегла продукт: {name}\n\nНа 100 г:\n{format_nutrients(nutrients)}")
+        await message.answer(f"Зберегла продукт: {name}\n\nНа 100 г:\n{format_nutrients(nutrients)}", reply_markup=quick_menu())
 
     @router.message(Command("add"))
     async def add(message: Message) -> None:
@@ -87,28 +142,15 @@ def build_router(db: Database) -> Router:
             + "\n\nСьогодні:\n"
             + format_nutrients(today)
             + "\n\n"
-            + goals_hint(db, message.from_user.id, today)
+            + goals_hint(db, message.from_user.id, today),
+            reply_markup=after_add_menu(),
         )
 
+    @router.message(F.text == "Сьогодні")
     @router.message(Command("today"))
     async def today(message: Message) -> None:
         db.ensure_user(message.from_user.id)
-        entries = db.today_entries(message.from_user.id)
-        total = db.today_totals(message.from_user.id)
-        if entries:
-            entry_text = "\n".join(
-                f"#{row['id']} {row['name']} {fmt_grams(row['grams'])} г, {fmt_grams(row['kcal'])} ккал"
-                for row in entries
-            )
-        else:
-            entry_text = "Сьогодні ще нічого не додано."
-        await message.answer(
-            entry_text
-            + "\n\nПідсумок:\n"
-            + format_nutrients(total)
-            + "\n\n"
-            + goals_hint(db, message.from_user.id, total)
-        )
+        await send_today(db, message, message.from_user.id)
 
     @router.message(Command("delete"))
     async def delete(message: Message) -> None:
@@ -118,12 +160,13 @@ def build_router(db: Database) -> Router:
             await message.answer("Напиши ID запису: /delete 12. ID видно в /today.")
             return
         deleted = db.delete_meal(message.from_user.id, int(payload))
-        await message.answer("Видалила запис." if deleted else "Не знайшла такий запис за сьогодні.")
+        await message.answer("Видалила запис." if deleted else "Не знайшла такий запис за сьогодні.", reply_markup=quick_menu())
 
+    @router.message(F.text == "Цілі")
     @router.message(Command("goals"))
     async def goals(message: Message) -> None:
         db.ensure_user(message.from_user.id)
-        await message.answer(format_goals(db.goals(message.from_user.id)))
+        await message.answer(format_goals(db.goals(message.from_user.id)), reply_markup=quick_menu())
 
     @router.message(Command("setgoal"))
     async def set_goal(message: Message) -> None:
@@ -135,7 +178,10 @@ def build_router(db: Database) -> Router:
             return
         key, value = match.groups()
         ok = db.set_goal(message.from_user.id, key, float(value.replace(",", ".")))
-        await message.answer("Ціль оновлена.\n\n" + format_goals(db.goals(message.from_user.id)) if ok else "Не знаю таку ціль. Напиши /goals.")
+        await message.answer(
+            "Ціль оновлена.\n\n" + format_goals(db.goals(message.from_user.id)) if ok else "Не знаю таку ціль. Напиши /goals.",
+            reply_markup=quick_menu(),
+        )
 
     @router.message(Command("dish"))
     async def dish(message: Message) -> None:
@@ -147,7 +193,7 @@ def build_router(db: Database) -> Router:
             return
         name, weight = match.groups()
         db.upsert_dish(message.from_user.id, name, float(weight.replace(",", ".")))
-        await message.answer(f"Зберегла посуд: {name.strip()} — {weight} г")
+        await message.answer(f"Зберегла посуд: {name.strip()} — {weight} г", reply_markup=quick_menu())
 
     @router.message(Command("dishes"))
     async def dishes(message: Message) -> None:
@@ -185,16 +231,12 @@ def build_router(db: Database) -> Router:
         except Exception:
             await message.answer("Такий шаблон уже є. Можемо потім додати редагування, а поки створи іншу назву.")
             return
-        await message.answer(f"Створила шаблон: {name.strip()}\nІнгредієнтів: {len(food_ids)}")
+        await message.answer(f"Створила шаблон: {name.strip()}\nІнгредієнтів: {len(food_ids)}", reply_markup=recipes_menu())
 
     @router.message(Command("templates"))
     async def templates(message: Message) -> None:
         db.ensure_user(message.from_user.id)
-        rows = db.list_templates(message.from_user.id)
-        if not rows:
-            await message.answer("Шаблонів ще нема. Створи так: /template запіканка | сир 5%, яйце, манка")
-            return
-        await message.answer("Шаблони:\n" + "\n".join(f"- {row['name']}" for row in rows))
+        await send_templates(db, message, message.from_user.id)
 
     @router.message(Command("cook"))
     async def cook(message: Message) -> None:
@@ -211,23 +253,12 @@ def build_router(db: Database) -> Router:
         except ValueError as exc:
             await message.answer(str(exc))
             return
-        await message.answer(reply)
+        await message.answer(reply, reply_markup=after_add_menu())
 
     @router.message(Command("batches"))
     async def batches(message: Message) -> None:
         db.ensure_user(message.from_user.id)
-        rows = db.active_batches(message.from_user.id)
-        if not rows:
-            await message.answer("Активних партій рецепту нема.")
-            return
-        await message.answer(
-            "Активні партії:\n"
-            + "\n\n".join(
-                f"{row['name']} — {fmt_grams(row['edible_weight_g'])} г готової страви\n"
-                + format_nutrients(Nutrients.from_row(row), prefix="  ")
-                for row in rows
-            )
-        )
+        await send_batches(db, message, message.from_user.id)
 
     @router.message(Command("finish"))
     async def finish(message: Message) -> None:
@@ -237,7 +268,7 @@ def build_router(db: Database) -> Router:
             await message.answer("Формат: /finish запіканка")
             return
         ok = db.finish_batch(message.from_user.id, name)
-        await message.answer("Партію архівовано." if ok else "Не знайшла активну партію з такою назвою.")
+        await message.answer("Партію архівовано." if ok else "Не знайшла активну партію з такою назвою.", reply_markup=recipes_menu())
 
     @router.message()
     async def fallback_add(message: Message) -> None:
@@ -261,7 +292,7 @@ def build_router(db: Database) -> Router:
         except ValueError as exc:
             await message.answer(str(exc))
             return
-        await message.answer("Додано:\n" + "\n".join(lines) + "\n\n" + format_nutrients(total))
+        await message.answer("Додано:\n" + "\n".join(lines) + "\n\n" + format_nutrients(total), reply_markup=after_add_menu())
 
     return router
 
@@ -302,6 +333,50 @@ def command_payload(text: str | None) -> str:
         return ""
     parts = text.split(maxsplit=1)
     return parts[1].strip() if len(parts) > 1 else ""
+
+
+async def send_today(db: Database, message: Message, user_id: int) -> None:
+    entries = db.today_entries(user_id)
+    total = db.today_totals(user_id)
+    if entries:
+        entry_text = "\n".join(
+            f"#{row['id']} {row['name']} {fmt_grams(row['grams'])} г, {fmt_grams(row['kcal'])} ккал"
+            for row in entries
+        )
+    else:
+        entry_text = "Сьогодні ще нічого не додано."
+    await message.answer(
+        entry_text
+        + "\n\nПідсумок:\n"
+        + format_nutrients(total)
+        + "\n\n"
+        + goals_hint(db, user_id, total),
+        reply_markup=after_add_menu(),
+    )
+
+
+async def send_templates(db: Database, message: Message, user_id: int) -> None:
+    rows = db.list_templates(user_id)
+    if not rows:
+        await message.answer("Шаблонів ще нема. Створи так: /template запіканка | сир 5%, яйце, манка", reply_markup=recipes_menu())
+        return
+    await message.answer("Шаблони:\n" + "\n".join(f"- {row['name']}" for row in rows), reply_markup=recipes_menu())
+
+
+async def send_batches(db: Database, message: Message, user_id: int) -> None:
+    rows = db.active_batches(user_id)
+    if not rows:
+        await message.answer("Активних партій рецепту нема.", reply_markup=recipes_menu())
+        return
+    await message.answer(
+        "Активні партії:\n"
+        + "\n\n".join(
+            f"{row['name']} — {fmt_grams(row['edible_weight_g'])} г готової страви\n"
+            + format_nutrients(Nutrients.from_row(row), prefix="  ")
+            for row in rows
+        ),
+        reply_markup=recipes_menu(),
+    )
 
 
 def amount_to_grams(food_row, amount: float, unit: str) -> float:
