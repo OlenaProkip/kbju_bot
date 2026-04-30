@@ -238,6 +238,8 @@ class Database:
     def set_goal(self, user_id: int, key: str, value: float) -> bool:
         allowed = {
             "kcal": "kcal",
+            "ккал": "kcal",
+            "калорії": "kcal",
             "білки": "protein_min_g",
             "protein": "protein_min_g",
             "жири_min": "fat_min_g",
