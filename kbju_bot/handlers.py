@@ -6,12 +6,12 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 
 from .db import Database
 from .nutrition import NUTRIENT_FIELDS, Nutrients, fmt_grams, format_nutrients
 from .parser import parse_food_items, parse_key_value_chunks
-from .ui import after_add_menu, cancel_menu, goals_menu, main_keyboard, quick_menu, recipes_menu
+from .ui import after_add_menu, cancel_menu, goals_menu, main_keyboard, products_menu as products_inline_menu, quick_menu, recipes_menu
 
 
 class AddFoodFlow(StatesGroup):
@@ -60,15 +60,17 @@ def build_router(db: Database) -> Router:
 
     @router.message(F.text == "Продукти")
     async def products_menu(message: Message) -> None:
-        await message.answer(
-            "Продукти:",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="Додати продукт з етикетки", callback_data="flow:food")],
-                    [InlineKeyboardButton(text="Показати базу", callback_data="menu:foods")],
-                ]
-            ),
-        )
+        await message.answer("Продукти:", reply_markup=products_inline_menu())
+
+    @router.message(F.text == "Додати продукт")
+    async def add_product_button(message: Message, state: FSMContext) -> None:
+        await state.set_state(AddFoodFlow.name)
+        await message.answer("Назва продукту?", reply_markup=cancel_menu())
+
+    @router.message(F.text == "Список продуктів")
+    async def foods_button(message: Message) -> None:
+        db.ensure_user(message.from_user.id)
+        await send_foods(db, message)
 
     @router.message(F.text == "Рецепти")
     async def recipe_menu_message(message: Message) -> None:
@@ -99,7 +101,7 @@ def build_router(db: Database) -> Router:
     @router.callback_query(F.data == "menu:foods")
     async def foods_callback(callback: CallbackQuery) -> None:
         db.ensure_user(callback.from_user.id)
-        await callback.message.answer("Продукти в базі:\n" + "\n".join(f"- {name}" for name in db.list_foods()))
+        await send_foods(db, callback.message)
         await callback.answer()
 
     @router.callback_query(F.data == "flow:food")
@@ -152,7 +154,7 @@ def build_router(db: Database) -> Router:
     @router.message(Command("foods"))
     async def foods(message: Message) -> None:
         db.ensure_user(message.from_user.id)
-        await message.answer("Продукти в базі:\n" + "\n".join(f"- {name}" for name in db.list_foods()))
+        await send_foods(db, message)
 
     @router.message(Command("food"))
     async def food(message: Message) -> None:
@@ -544,6 +546,14 @@ async def send_batches(db: Database, message: Message, user_id: int) -> None:
         ),
         reply_markup=recipes_menu(),
     )
+
+
+async def send_foods(db: Database, message: Message) -> None:
+    foods = db.list_foods()
+    if not foods:
+        await message.answer("База продуктів поки порожня.", reply_markup=products_inline_menu())
+        return
+    await message.answer("Продукти в базі:\n" + "\n".join(f"- {name}" for name in foods), reply_markup=products_inline_menu())
 
 
 async def add_food_text(db: Database, message: Message, text: str) -> None:

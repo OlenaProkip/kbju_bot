@@ -29,6 +29,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Додати їжу"), KeyboardButton(text="Сьогодні")],
             [KeyboardButton(text="Цілі"), KeyboardButton(text="Продукти")],
+            [KeyboardButton(text="Список продуктів"), KeyboardButton(text="Додати продукт")],
             [KeyboardButton(text="Посуд"), KeyboardButton(text="Рецепти")],
             [KeyboardButton(text="Допомога")],
         ],
@@ -94,5 +95,14 @@ def goals_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Насичені жири", callback_data="goal:насичені"),
                 InlineKeyboardButton(text="Сіль", callback_data="goal:сіль"),
             ],
+        ]
+    )
+
+
+def products_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Додати продукт з етикетки", callback_data="flow:food")],
+            [InlineKeyboardButton(text="Список продуктів", callback_data="menu:foods")],
         ]
     )
